@@ -14,6 +14,7 @@ def df_to_csc_matrix(df, n_user):
 
 
 def set_mtx_triad(mtx1, mtx2):
+    # R*R, R*R^T, R^T*R, R^T*R^T
     mtx = [mtx1 * mtx2,
            mtx1 * csr_matrix.transpose(mtx2),
            (csr_matrix.transpose(mtx1) * mtx2).tocsr(),
@@ -23,20 +24,25 @@ def set_mtx_triad(mtx1, mtx2):
 
 # create matrix for feature extraction
 def create_mtx(df, df_pos, df_neg, n_user):
+    # pos -> neg
+    # neg -> pos 
+    # 값은 모두 1
     temp1 = csr_matrix((df.feedback, (df.sid, df.tid)), shape=(n_user, n_user))
     temp2 = csr_matrix((df.feedback, (df.tid, df.sid)), shape=(n_user, n_user))
+    # user-item, item-user 모두 연결 된 행렬
     mtx_train_csr = temp1 + temp2
     mtx_train_csr.data = np.ones_like(mtx_train_csr.data)
+    # 곱해서 서로의 연결을 미리 가중하는것인가?
     mtx_common = mtx_train_csr * mtx_train_csr
 
     mtx_cs = [df_to_csr_matrix(df_pos, n_user), df_to_csr_matrix(df_neg, n_user),
               df_to_csc_matrix(df_pos, n_user), df_to_csc_matrix(df_neg, n_user)]
 
     mtx_triad = []
-    mtx_triad.extend(set_mtx_triad(mtx_cs[0], mtx_cs[0]))
-    mtx_triad.extend(set_mtx_triad(mtx_cs[0], mtx_cs[1]))
-    mtx_triad.extend(set_mtx_triad(mtx_cs[1], mtx_cs[0]))
-    mtx_triad.extend(set_mtx_triad(mtx_cs[1], mtx_cs[1]))
+    mtx_triad.extend(set_mtx_triad(mtx_cs[0], mtx_cs[0])) # pos, pos
+    mtx_triad.extend(set_mtx_triad(mtx_cs[0], mtx_cs[1])) # pos, neg
+    mtx_triad.extend(set_mtx_triad(mtx_cs[1], mtx_cs[0])) # neg, pos
+    mtx_triad.extend(set_mtx_triad(mtx_cs[1], mtx_cs[1])) # neg, neg
 
     mtx = [mtx_cs, mtx_common, mtx_triad]
     return mtx
@@ -46,9 +52,13 @@ def create_mtx(df, df_pos, df_neg, n_user):
 def set_TrustSGCN_mtx( scores, signs, n_user, sign_thres, adj_dic_all):
     cnt = 0
     
+    # Trust, sign=1
     lists_T1 = list()
+    # Trust, sign=-1
     lists_T2 = list()
+    # Untrust, sign=1
     lists_U1 = list()
+    # Untrust, sign=-1
     lists_U2 = list()
 
     pbar=tqdm(total=len(adj_dic_all.keys()))
@@ -58,12 +68,14 @@ def set_TrustSGCN_mtx( scores, signs, n_user, sign_thres, adj_dic_all):
             fifi = [i, j, sign, hop]
             #1hop은 다 믿어
             if hop == 1 and sign == 1:
+                # Trust의 약자구나. Trust hop1
                 lists_T1.append(fifi)
 
             elif hop == 1 and sign == -1:
                 lists_T2.append(fifi)
       
             # mesure trustwothiness based two condition
+            # hop이 2이상일 때 검사
             elif(sign == signs[i][j]): # condition 1: sign predicted by balance theory ==  sign predicted by fextra ?
                 if sign==1: # pos edge
                     if(scores[i][j]>sign_thres[0]): # condition 2: over threshold?
@@ -141,4 +153,5 @@ def set_FExtra_mtx( scores, signs, n_user, sign_thres, adj_dic_all):
 
 
 def get_degree(mtx, idx):
+    # 해당 행에 존재하는 data의 개수만 반환
     return mtx.indptr[idx + 1] - mtx.indptr[idx]

@@ -118,6 +118,7 @@ class Encoder(nn.Module):
         self.aggs = aggs
 
         self.embed_dim = embed_dim
+        # self.aggs[i] -> MeanAggregator
         for i, agg in enumerate(self.aggs):
             self.add_module('agg_{}'.format(i), agg)
             self.aggs[i] = agg.to(DEVICES)
@@ -137,9 +138,11 @@ class Encoder(nn.Module):
 
 
     def forward(self, nodes):
+        # eval: nodes -> random nodes
         if not isinstance(nodes, list) and nodes.is_cuda:
             nodes = nodes.data.cpu().numpy().tolist()
  
+        # 모든 그래프별 node에 대해서 positive, negative embedding을 각각 계산한 결과
         neigh_feats_all= [agg(nodes, adj, ind) for adj, agg, ind in zip(self.MLG, self.aggs, range(len(self.MLG)))]
         final_pos = neigh_feats_all[0][0] + neigh_feats_all[1][0] + neigh_feats_all[2][0] + neigh_feats_all[3][0]
         final_neg = neigh_feats_all[0][1] + neigh_feats_all[1][1] + neigh_feats_all[2][1] + neigh_feats_all[3][1]
@@ -151,6 +154,7 @@ class Encoder(nn.Module):
         combined_neg = self.neg_nonlinear_layer(final_neg)
         combined = torch.cat([combined_pos, combined_neg], dim=1)
 
+        # (NUM_NODE, 64)
         return combined
 
 class EncoderP(nn.Module):
@@ -219,6 +223,8 @@ class EncoderN(nn.Module):
         return combined_neg
 
 class MeanAggregator(nn.Module):
+    # MeanAggregator인데 aggregator 메서드에서 sum만 하네
+    # 평균 집계
     def __init__(self, features_pos, features_neg, in_dim, out_dim, percent):
         super(MeanAggregator, self).__init__()
 
@@ -231,6 +237,8 @@ class MeanAggregator(nn.Module):
             nn.Tanh(),
             nn.Linear(self.out_dim, self.out_dim)
         ).to(DEVICES)
+        # HOP = 2
+        # 단위 벡터로 정규화한 값을 hop이 2이상인 노드에 곱하는 가중치
         self.alpha=torch.nn.Embedding(HOP, 1, max_norm=1.0).to(DEVICES)
       
         nn.init.ones_(self.alpha.weight)
@@ -240,25 +248,30 @@ class MeanAggregator(nn.Module):
 
     def message(self, edges): 
       
+        # src -> out node에 해당
         em_p = edges.src['node_emb_p'] 
         em_n = edges.src['node_emb_n'] 
 
+        # 2 hop 이상인 노드에 가중치 alpha를 적용
         mask = ((edges.data['hop']-1)>0)
        
         em_p[mask] = edges.src['node_emb_p'][mask] * self.alpha(edges.data['hop']-1)[mask].view(-1,1)
         em_n[mask] = edges.src['node_emb_n'][mask] * self.alpha(edges.data['hop']-1)[mask].view(-1,1)
        
-        em_pp= em_p * self.percent[0] 
-        em_pn= em_p * self.percent[1]
-        em_np= em_n * self.percent[2]  
-        em_nn= em_n * self.percent[3]
+        em_pp= em_p * self.percent[0] # Trust Sign 1, Trust Unsign 0
+        em_pn= em_p * self.percent[1] # Trust Sign 0, Trust Unsign 1
+        em_np= em_n * self.percent[2] # Trust Sign 0, Trust Unsign 1
+        em_nn= em_n * self.percent[3] # Trust Sign 1, Trust Unsign 0
  
+        # 노드 강도로 정규화
+        # 왜 np는 emb_p에 들어가고, pn은 emb_n에 들어가지?
         emb_p = (em_pp + em_np) / edges.src['out_degree']
         emb_n = (em_pn + em_nn) / edges.src['out_degree']
 
         return {'m_p' : emb_p, 'm_n' : emb_n}
 
     def aggregator(self,nodes):
+        # out node가 받은 message를 더해서 dictionary로 반환
         return {'node_emb_p2': nodes.mailbox['m_p'].sum(1), 'node_emb_n2': nodes.mailbox['m_n'].sum(1)} #degree normalization 할때는 sum 해야함
 
 
@@ -271,11 +284,16 @@ class MeanAggregator(nn.Module):
             break
         sub_sample.copy_from_parent()
 
+        # layers[0] -> seed node
         sub_sample.layers[0].data['node_emb_p'] =  self.features_pos(sub_sample.layers[0].data['node_idx'].to(DEVICES))
         sub_sample.layers[0].data['node_emb_n'] =  self.features_neg(sub_sample.layers[0].data['node_idx'].to(DEVICES))
+        # 1hop의 out node 강도. 정규화 용도
         sub_sample.layers[0].data['out_degree'] = sub_sample.layer_out_degree(0).type(torch.FloatTensor).unsqueeze(1).to(DEVICES) # degree normalization
+        # message_func -> 이웃 노드로부터 메시지 생성
+        # reduce_func -> 메시지를 전파하고 업데이트
         sub_sample.block_compute(block_id=0,  message_func = self.message, reduce_func = self.aggregator)
        
+        # layers[0] -> 1hop neighbor node
         sub_sample.layers[1].data['node_emb_p'] = sub_sample.layers[1].data['node_emb_p2'] 
         sub_sample.layers[1].data['node_emb_n'] = sub_sample.layers[1].data['node_emb_n2'] 
 
@@ -303,14 +321,18 @@ class TrustSGCN(nn.Module):
  
 
     def forward(self, nodes):
+        # (NUM_NODE, 64)
         embeds = self.enc(nodes)
         return embeds
 
-    def criterion(self, nodes, pos_neighbors, neg_neighbors, adj_lists_out_p, adj_lists_out_n):        
+    def criterion(self, nodes, pos_neighbors, neg_neighbors, adj_lists_out_p, adj_lists_out_n): 
+        # feedback이 1인 node list       
         pos_neighbors_list = [set.union(pos_neighbors[i]) for i in nodes]
+        # feedback이 -1인 node list
         neg_neighbors_list = [set.union(neg_neighbors[i]) for i in nodes]
 
         unique_nodes_list = list(set.union(*pos_neighbors_list).union(*neg_neighbors_list).union(nodes))
+        # key: unique node, value: idx
         unique_nodes_dict = {n: i for i, n in enumerate(unique_nodes_list)}
         nodes_embs = self.enc(unique_nodes_list)
 
@@ -319,6 +341,7 @@ class TrustSGCN(nn.Module):
 
         for index, node in enumerate(nodes):
             a_emb = nodes_embs[unique_nodes_dict[node], :] 
+            # neighbor의 idx
             pos_neigs = list([unique_nodes_dict[i] for i in pos_neighbors[node]]) 
             neg_neigs = list([unique_nodes_dict[i] for i in neg_neighbors[node]]) 
             pos_num = len(pos_neigs)
@@ -328,9 +351,12 @@ class TrustSGCN(nn.Module):
             sta_neg_neighs_out = list([unique_nodes_dict[i] for i in adj_lists_out_n[node]])          
 
             if pos_num > 0:
+                # 이웃들의 embedding
                 pos_neig_embs = nodes_embs[pos_neigs, :] 
 
                 # sign loss: entropy
+                # (pos_num, 64) * (64,) -> (pos_num,)
+                # 이웃 노드간 얼마나 닮아있는지 log함수를 취하여 계산. 1에 가까울수록 작음
                 sign_loss += F.binary_cross_entropy_with_logits(torch.einsum("nj,j->n", [pos_neig_embs, a_emb]), torch.ones(pos_num).to(DEVICES))     
 
               
@@ -352,23 +378,28 @@ def load_data1(filename=''):
 
 
 def load_data2(filename=''):
+    # 양방향
     adj_list_pos = defaultdict(set)
+    # out: source -> target
     adj_list_out_pos = defaultdict(set)
+    # in: target -> source
     adj_list_in_pos = defaultdict(set)
     adj_list_neg = defaultdict(set)
     adj_list_out_neg = defaultdict(set)
     adj_list_in_neg = defaultdict(set)
+    # 단방향. 사실 pos
     adj_list_out_unsign = defaultdict(set)
 
     with open(filename) as fp:
         for i, line in enumerate(fp):
             info = line.strip().split()
-            person1 = int(info[0])
-            person2 = int(info[1])
-            v = int(info[2])
+            person1 = int(info[0]) # source
+            person2 = int(info[1]) # target
+            v = int(info[2])       # feedback
             adj_list_out_unsign[person1].add(person2)  
 
             if v == 1:
+                # 양방향 edge
                 adj_list_pos[person1].add(person2)
                 adj_list_pos[person2].add(person1)
 
@@ -404,7 +435,12 @@ def run(dataset, k):
     num_nodes = DATASET_NUM_DIC[dataset] 
 
     filename = './experiment-data/{}/{}_u{}_{}.train'.format(dataset,dataset, k, PER)
+    
+    # undirect: 양방향
+    # outdirect: source -> target
+    # indirect: target -> source
     undirect_pos, outdirect_pos, indirect_pos, undirect_neg, outdirect_neg, indirect_neg, outdirect_unsign = load_data2(filename) # pos_all, pos out, pos in, neg_all, neg out, neg in, posnegall
+    # (Trust, sign=1), (Trust, sign=-1), (UnTrust, sign=1), (UnTrust, sign=-1)
     mtx_T1, mtx_T2, mtx_U1, mtx_U2 = load_data1(filename)  
     print(k, dataset, 'data load!')
 
@@ -414,8 +450,10 @@ def run(dataset, k):
     graphU2 = dgl.DGLGraph()
 
     if GET_DGL=='True':
+        # source -> target으로 edge를 추가하고 해당 edge에 sign, hop 정보를 추가
         graphT1.add_nodes(num_nodes)
         graphT1.ndata['node_idx'] = torch.tensor(list(range(num_nodes)))
+        # source, target, sign, hop
         p1s1, p2s1, signs1, hop1 = zip(*mtx_T1)
         for p1, p2 in tqdm(zip(p1s1, p2s1)): #17분
             graphT1.add_edges(int(p1), int(p2))
@@ -476,6 +514,7 @@ def run(dataset, k):
 
     
     if DATASET=="wikiRfA_pos_neg":
+        # pre_analysis는 어떤 비율일까?
         pre_analysis = [(0.71, 0.29), (0.71, 0.29), (0.71, 0.29), (0.86, 0.14)] 
         percent = [(1.0 ,0.0 ,0.0 ,1.0 ), (0.0 ,1.0 ,1.0 ,0.0 ), (pre_analysis[0][0], pre_analysis[0][1], pre_analysis[2][0], pre_analysis[2][1]), (pre_analysis[1][0], pre_analysis[1][1], pre_analysis[3][0], pre_analysis[3][1])]
         
@@ -529,6 +568,7 @@ def run(dataset, k):
     print(model.train())
 
     #for layer1
+    # gradient update가 필요한 가중치만 업데이트
     optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
     #for layer2
@@ -548,6 +588,7 @@ def run(dataset, k):
     time_result = []
     for epoch in range(EPOCHS + 2):
         total_loss = []
+        # INTERVAL_PRINT = 2
         if epoch % INTERVAL_PRINT == 0:
             model.eval()
             all_embedding = np.zeros((NUM_NODE, EMBEDDING_SIZE1*2))
@@ -555,6 +596,7 @@ def run(dataset, k):
                 begin_index = i
                 end_index = i + BATCH_SIZE if i + BATCH_SIZE < NUM_NODE else NUM_NODE
                 values = np.arange(begin_index, end_index)
+                # (NUM_NODE, 64). 절반은 pos, 나머지는 neg
                 embed = model.forward(values.tolist())
                 embed = embed.data.cpu().numpy()
                 all_embedding[begin_index: end_index] = embed
@@ -570,7 +612,10 @@ def run(dataset, k):
             nodes = nodes_pku[b_index:e_index]
 
             # tri loss
+            # 이웃 노드간 유사도로 loss 계산
             loss = model.criterion(
+                # undirect: 양방향
+                # outdirect: source -> target
                 nodes, undirect_pos, undirect_neg, outdirect_pos, outdirect_neg
             )
 
@@ -585,6 +630,7 @@ def run(dataset, k):
         
 
         fpath = os.path.join(OUTPUT_DIR, 'embedding-{}-{}-{}.npy'.format(dataset, k, str(epoch)))
+        # node별 embedding 저장
         np.save(fpath, all_embedding)
         
         if epoch%INTERVAL_PRINT==0:

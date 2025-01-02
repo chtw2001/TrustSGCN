@@ -54,6 +54,7 @@ def read_train_test_data_sign(dataset, k, PER):
             i = int(i)
             j = int(j)
             flag = int(flag)
+            # 1은 1로, -1은 0으로 레이블 지정
             flag = int((flag + 1)/2)
             train_X.append((i, j))
             train_y.append(flag)
@@ -73,6 +74,7 @@ def read_train_test_data_sign(dataset, k, PER):
 
 @ignore_warnings(category=ConvergenceWarning)
 def sign_prediction(dataset, k, embeddings, per):
+    # embeddings -> node의 최종 embedding
     train_X, train_y, test_X, test_y  = read_train_test_data_sign(dataset, k, per)
 
     train_X1 = []
@@ -87,7 +89,9 @@ def sign_prediction(dataset, k, embeddings, per):
 
     logistic_function = linear_model.LogisticRegression()
     logistic_function.fit(train_X1, train_y)
+    # 예측 결과(binary)
     pred = logistic_function.predict(test_X1)
+    # 예측 결과 수치(float)
     pred_p = logistic_function.predict_proba(test_X1)
 
     cnt = test_y + pred

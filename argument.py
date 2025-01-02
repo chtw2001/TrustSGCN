@@ -20,6 +20,7 @@ parser.add_argument("--func", default="setproMTX",  help="select a function of (
                
 args = parser.parse_args()
 RANDOM_SEED=args.seed
+# bitcoin_otc -> 5878
 NUM_NODE = DATASET_NUM_DIC[args.dataset]
 DEVICES_CPU = torch.device(args.devices_cpu)
 DEVICES_GPU = torch.device(args.devices_gpu)

@@ -16,6 +16,7 @@ np.random.seed(RANDOM_SEED)
 now_=datetime.now().strftime('%y-%m-%d %H:%M:%S')
 
 def set_subgraph(flag, filename, max_hop, TWO_HOP_SUB, dic_path, THR_HOP_SUB):
+    # graph에서 연결 된 node를 최대 3hop까지 연결하고 dictionary 반환
     if flag:
         print("Set subgraph.........")
         adj_lists_all = defaultdict(list)
@@ -32,6 +33,7 @@ def set_subgraph(flag, filename, max_hop, TWO_HOP_SUB, dic_path, THR_HOP_SUB):
                 value1=[person1, sign, 1] # from node, sign, hop
                 value2=[person2, sign, 1] # to node, sign, hop
 
+                # 1 hop으로 연결 된 node 삽입
                 adj_lists_all[person1].append(value2)
                 adj_lists_all[person2].append(value1)
             
@@ -40,6 +42,7 @@ def set_subgraph(flag, filename, max_hop, TWO_HOP_SUB, dic_path, THR_HOP_SUB):
             # 2hop 
             if max_hop == 2:
                 for p1 in tqdm(adj_lists_all.keys(), bar_format='{desc:<5.5}{percentage:3.0f}%|{bar:10}{r_bar}'):
+                    # 중복 없이
                     adj_lists_all[p1][:] = list(set(map(tuple, adj_lists_all[p1][:])))
                     final_adj_lists_all = adj_lists_all[p1][:] 
                     for p2,sign,hop in final_adj_lists_all:
@@ -47,11 +50,14 @@ def set_subgraph(flag, filename, max_hop, TWO_HOP_SUB, dic_path, THR_HOP_SUB):
                         if hop ==1:    
                             for hp, hsign, hhop in adj_lists_all[p2]:
                                 if hp != p1 and hhop==1:
+                                    # 양방향 모두 final_adj_lists_all에 삽입, hop은 2로
                                     final_adj_lists_all.append([hp, hsign*sign, 2])                    
              
+                    # 양방향으로 연결 된 node는 sign을 곱하고 hop을 2로 설정
                     adj_lists_all[p1] = final_adj_lists_all[:]
             
             #3hop 
+            # hop2와 동일한 동작
             if max_hop == 3:
                 with open(TWO_HOP_SUB, 'rb') as fr:
                     adj_lists_2hop = pickle.load(fr)
@@ -72,6 +78,7 @@ def set_subgraph(flag, filename, max_hop, TWO_HOP_SUB, dic_path, THR_HOP_SUB):
             adj_lists_all_hop_cleaning=defaultdict(list)
             for src in tqdm(adj_lists_all.keys(), bar_format='{desc:<5.5}{percentage:3.0f}%|{bar:10}{r_bar}'):
                 onehopset=list()
+                # hop 1부터 오름차순 정렬
                 a = sorted(adj_lists_all[src], key=lambda x: x[-1])
                 for frd, sign, hop in a:
                     if hop==1: 
@@ -94,6 +101,7 @@ def set_subgraph(flag, filename, max_hop, TWO_HOP_SUB, dic_path, THR_HOP_SUB):
         with open(dic_path, 'rb') as fr:
             adj_lists_all_hop_cleaning = pickle.load(fr)
 
+    # key: source, value: [destination, sign, hop]
     return adj_lists_all_hop_cleaning
 
 
@@ -135,12 +143,16 @@ def init(FUNCTION, P_THRESN, N_THRESN):
         df_train, features_train, mtx = extract_features(True, FEA_PATH, NUM_NODE)
         return
     else:
+        # original train dataframe
+        # features_train -> (train_num, Feature class)
+        # mtx -> [(csr pos, csr neg, csc pos, csc neg), (user-item, item-user 모두 연결 된 행렬), (csr pos-pos, pos-neg, neg-pos, neg-neg R*R, R*R^T, R^T*R, R^T*R^T)]
         df_train, features_train, mtx = extract_features(False, FEA_PATH, NUM_NODE)
 
     if FUNCTION == "setsubgraph":
         dic = set_subgraph(flag=True, filename=TRAIN_PATH, max_hop=HOP, TWO_HOP_SUB=TWO_HOP_SUB_PATH, dic_path=SUBGRAPH_DIC_PATH, THR_HOP_SUB = THR_HOP_SUB_PATH) # TRAIN DATASET으로 서브 그래프  #, lists_pos, lists_neg
         return
     else:
+        # key: source, value: [destination, sign, hop]
         dic = set_subgraph(flag=False, filename=TRAIN_PATH, max_hop=HOP, TWO_HOP_SUB=TWO_HOP_SUB_PATH, dic_path=SUBGRAPH_DIC_PATH, THR_HOP_SUB = THR_HOP_SUB_PATH) # TRAIN DATASET으로 서브 그래프  #, lists_pos, lists_neg
     
 
@@ -148,10 +160,14 @@ def init(FUNCTION, P_THRESN, N_THRESN):
         mtx = predict_FExtra_scores_save_time(True, FEA_PATH, features_train, mtx, NUM_NODE,dic)#트레인으로 학습한 feature를  기반으로 test데이터의 featrue 점수 계산
         return
     else:
+        # mtx -> [csc pos, csc neg] 만 남음
         mtx = predict_FExtra_scores_save_time(False, FEA_PATH, features_train, mtx, NUM_NODE,dic) 
     
     if FUNCTION == "setproMTX":
+        # Untrustworthy_percent 저장하는 역할
+        # FUNCTION 기본 값은 setproMTX
         #여기서  FExtra가 인풋으로 들어감 : FEA_PATH
+        # P_THRESN, N_THRESN -> 0.98, 0.98
         lists_T1, lists_T2, lists_U1, lists_U2 =process(FEA_PATH, df_train, NUM_NODE, [P_THRESN, N_THRESN], dic)
         Untrustworthy_percent =  (len(lists_U1) + len(lists_U2)) / (len(lists_T1) + len(lists_T2)+ len(lists_U1) + len(lists_U2))
         with open(Count_UT, 'a') as res:

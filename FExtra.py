@@ -14,6 +14,7 @@ class FExtra:
         vec_train = []
         sign_train = []
         for edge in features_train:
+            # y -> label
             y = edge.vec[num_embed] if edge.vec[num_embed] == 1 else 0  # 1->1,-1->0
             edge_feature = np.array(edge.vec[0:num_embed])
             vec_train.append(edge_feature)
@@ -33,6 +34,7 @@ class FExtra:
 
     def compute_scores(self, features_test):
         vec_test = []
+        # edge -> Feature Class
         for edge in features_test:
             edge_feature = np.array(edge.vec[0:self.num_embed])
             vec_test.append(edge_feature)
@@ -42,7 +44,9 @@ class FExtra:
         vec_test_robust_scaled = self.robust_scaler.transform(vec_test)
 
         # check
+        # [:, 1]로 정답인 것만 split
         test_score = self.lr.predict_proba(vec_test_robust_scaled)[:, 1]
+        # 예측 결과
         test_pred = self.lr.predict(vec_test_robust_scaled)
         
         return test_score, test_pred
