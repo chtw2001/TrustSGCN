@@ -16,7 +16,7 @@ np.random.seed(RANDOM_SEED)
 now_=datetime.now().strftime('%y-%m-%d %H:%M:%S')
 
 def set_subgraph(flag, filename, max_hop, TWO_HOP_SUB, dic_path, THR_HOP_SUB):
-    # graph에서 연결 된 node를 최대 3hop까지 연결하고 dictionary 반환
+    # graph에서 연결 된 node를 최대 2hop까지 연결하고 dictionary 반환
     if flag:
         print("Set subgraph.........")
         adj_lists_all = defaultdict(list)
@@ -51,6 +51,7 @@ def set_subgraph(flag, filename, max_hop, TWO_HOP_SUB, dic_path, THR_HOP_SUB):
                             for hp, hsign, hhop in adj_lists_all[p2]:
                                 if hp != p1 and hhop==1:
                                     # 양방향 모두 final_adj_lists_all에 삽입, hop은 2로
+                                    # sign은 곱해져서 설정됨. or 연산
                                     final_adj_lists_all.append([hp, hsign*sign, 2])                    
              
                     # 양방향으로 연결 된 node는 sign을 곱하고 hop을 2로 설정
@@ -130,6 +131,8 @@ def init(FUNCTION, P_THRESN, N_THRESN):
         print("========count triangle========")
         print('DATASET', DATASET)
         time1 = time.time()
+        # 삼각 관계의 결과 출력만 하고 아무것도 안하네?
+        # 삼각 관계는 어떤걸 의미하는지?
         cntTriangle(DATASET)
         running_time = time.time() - time1
         print("time: ", running_time)

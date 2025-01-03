@@ -129,6 +129,8 @@ def process(fea_path, df_train,  n_user, sign_thres, adj_dic_all):
             real_edge = df_train[df_train.sid == snode].tid.values
             real_sign = df_train[df_train.sid == snode].feedback.values
 
+            # 데이터의 값을 강제로 넣은것도 pred라고 할 수 있는가?
+            # 어떤 의미이지?
             scores_snode[real_edge] = 1 
             # 실제 feedback값이 들어간다
             signs_snode[real_edge] = real_sign

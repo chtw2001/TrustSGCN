@@ -239,6 +239,7 @@ class MeanAggregator(nn.Module):
         ).to(DEVICES)
         # HOP = 2
         # 단위 벡터로 정규화한 값을 hop이 2이상인 노드에 곱하는 가중치
+        # (2, )
         self.alpha=torch.nn.Embedding(HOP, 1, max_norm=1.0).to(DEVICES)
       
         nn.init.ones_(self.alpha.weight)
@@ -278,6 +279,7 @@ class MeanAggregator(nn.Module):
 
     def forward(self, batch_nodes, MLG, ind):
         MLG.readonly(True)
+                                            # g, batch_size, 
         neightbor_sampler = NeighborSampler( MLG , len(batch_nodes) , expand_factor=SAMPLE_NUM , neighbor_type='in',  seed_nodes=batch_nodes)
     
         for sub_sample in neightbor_sampler:
@@ -285,9 +287,10 @@ class MeanAggregator(nn.Module):
         sub_sample.copy_from_parent()
 
         # layers[0] -> seed node
+        # 샘플링 된 노드의 index의 가중치만 사용
         sub_sample.layers[0].data['node_emb_p'] =  self.features_pos(sub_sample.layers[0].data['node_idx'].to(DEVICES))
         sub_sample.layers[0].data['node_emb_n'] =  self.features_neg(sub_sample.layers[0].data['node_idx'].to(DEVICES))
-        # 1hop의 out node 강도. 정규화 용도
+        # seed node의 out 강도. 정규화 용도
         sub_sample.layers[0].data['out_degree'] = sub_sample.layer_out_degree(0).type(torch.FloatTensor).unsqueeze(1).to(DEVICES) # degree normalization
         # message_func -> 이웃 노드로부터 메시지 생성
         # reduce_func -> 메시지를 전파하고 업데이트
@@ -331,9 +334,11 @@ class TrustSGCN(nn.Module):
         # feedback이 -1인 node list
         neg_neighbors_list = [set.union(neg_neighbors[i]) for i in nodes]
 
+        # 등장하는 모든 노드의 집합
         unique_nodes_list = list(set.union(*pos_neighbors_list).union(*neg_neighbors_list).union(nodes))
         # key: unique node, value: idx
         unique_nodes_dict = {n: i for i, n in enumerate(unique_nodes_list)}
+        # 모든 노드의 embedding
         nodes_embs = self.enc(unique_nodes_list)
 
         sign_loss = 0
@@ -341,7 +346,7 @@ class TrustSGCN(nn.Module):
 
         for index, node in enumerate(nodes):
             a_emb = nodes_embs[unique_nodes_dict[node], :] 
-            # neighbor의 idx
+            # node와 연결 된 sign1인 neighbor의 idx. 
             pos_neigs = list([unique_nodes_dict[i] for i in pos_neighbors[node]]) 
             neg_neigs = list([unique_nodes_dict[i] for i in neg_neighbors[node]]) 
             pos_num = len(pos_neigs)
@@ -591,6 +596,7 @@ def run(dataset, k):
         # INTERVAL_PRINT = 2
         if epoch % INTERVAL_PRINT == 0:
             model.eval()
+            # all_embedding -> 모든 node의 현재 embedding을 저장
             all_embedding = np.zeros((NUM_NODE, EMBEDDING_SIZE1*2))
             for i in range(0, NUM_NODE, BATCH_SIZE):
                 begin_index = i

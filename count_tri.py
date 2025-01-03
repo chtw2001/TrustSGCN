@@ -9,6 +9,7 @@ def call_check_triangle_sign(full_graph_filename, dataset, split_chr=' ', ):
     nnp_nnn= nnp+nnn
 
 
+    # data에서 삼각 관계에 있는 데이터의 결과 출력
     with open("./count_triangle/" + dataset + "_" + version +"_cnt_tri_sign.txt", "a") as fw:
         fw.writelines("\n")
         fw.writelines("number of triangles checked: " + str(cnt_tri_all) + "\n")
@@ -26,12 +27,15 @@ def call_check_triangle_sign(full_graph_filename, dataset, split_chr=' ', ):
 def check_triangle_sign(full_graph_filename, split_chr=" "):
     pos = 1; neg = -1
 
+    # 단방향 dict, 양방향 sign dict
     adj_dict_drct, edge_sign_dict_drct = get_adj_dict_from_file(full_graph_filename, split_chr)
 
     cnt_tri_neg = {0: 0, 1: 0, 2: 0, 3: 0}
     cnt_tri_pos = {0: 0, 1: 0, 2: 0, 3: 0}
     cnt_tri_all = 0
+    # center - nhb_1 - nhd_2 모두 긍정
     ppp=0
+    # 긍정 긍정 부정
     ppn=0
     pnp=0
     pnn=0
@@ -42,6 +46,8 @@ def check_triangle_sign(full_graph_filename, split_chr=" "):
 
 
     tri_dict=get_triangles(adj_dict_drct)
+    # center node를 중심으로 삼각 관계에 있는 node들
+    # (center, nhd_1, nhd_2)
     for triangle in get_triangles(adj_dict_drct): # count negative edges in a single triangle
         prior1sign = edge_sign_dict_drct[triangle[0]][triangle[1]]
         prior2sign = edge_sign_dict_drct[triangle[1]][triangle[2]]
@@ -95,6 +101,7 @@ def get_triangles(adj_dict_undrct):
     for center in adj_dict_undrct:
         visited_center_nhds = set()
 
+        # nhd_1 -> center node의 target
         for nhd_1 in adj_dict_undrct[center]:
             if nhd_1 == center:
                 continue # raise ValueError # to prevent self-loops
@@ -102,13 +109,15 @@ def get_triangles(adj_dict_undrct):
             if nhd_1 in visited_centers:
                 continue
 
+            # center node target의 target이 있다면
             if nhd_1 in adj_dict_undrct:
+                # nhd_2 -> center node target의 target
                 for nhd_2 in adj_dict_undrct[nhd_1]:
                     if nhd_2 in [center, nhd_1]: # if center or nhd_1 exists
                         continue
                     if nhd_2 in visited_centers or nhd_2 in visited_center_nhds: # 2 terminate conditions;
                         continue
-                    
+                    # center node를 중심으로 삼각 관계에 있는 node들
                     if center in adj_dict_undrct:
                         if nhd_2 in adj_dict_undrct[center]:
                             yield (center, nhd_1, nhd_2)
@@ -130,7 +139,13 @@ def get_adj_dict_from_file(filename, split_chr=' '):
                 continue
 
             if version == 'undirec':
+                # adj_dict_drct -> 단뱡향 dict. 
+                # key: source, value: target list
+                # key: target, value: source list
                 add_to_dict_undirect(adj_dict_drct, edge[0], edge[1])
+                # edge_sign_dict_drct -> 양방향 sign dit
+                # key: source, key2: target, value: sign
+                # key: target, key2: source, value: sign
                 add_sign_to_dict_undirect(edge_sign_dict_drct, edge[0], edge[1], edge[2])
             if version == 'direc':
                 add_to_dict_direct(adj_dict_drct, edge[0], edge[1])
@@ -143,6 +158,7 @@ def get_adj_dict_from_file(filename, split_chr=' '):
         adj_dict_drct[key] = temp # 중복 제거
 
     print("Finish read graph... ")
+    # 단방향 dict, 양방향 sign dict
     return adj_dict_drct, edge_sign_dict_drct
 
 
